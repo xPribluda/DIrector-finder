@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Director / EIR Finder — Oncology</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%234f46e5'/%3E%3Ctext x='50%25' y='54%25' text-anchor='middle' font-size='36' font-family='system-ui' font-weight='700' fill='white' dominant-baseline='middle'%3EDf%3C/text%3E%3C/svg%3E" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="env,react">
+    const { useState, useEffect, useMemo } = React;
+
+    // ------------------------------------------------------------------
+    // Default aggregation boards — only slugs that have been verified.
+    // Real-time scanning only covers these Greenhouse + Lever boards.
+    // For every other company, use the biotech / big-pharma panels,
+    // which open LinkedIn Jobs searches.
+    // ------------------------------------------------------------------
+    const DEFAULT_BOARDS = [
+      { source: "greenhouse", slug: "revolutionmedicines", name: "Revolution Medicines" },
+      { source: "greenhouse", slug: "nurix",               name: "Nurix Therapeutics" },
+      { source: "lever",      slug: "ideayabio",           name: "IDEAYA Biosciences" },
+    ];
+
+    // ------------------------------------------------------------------
+    // Geography
+    // ------------------------------------------------------------------
+    const BAY_AREA = [
+      "san francisco", "south san francisco", "ssf", "oakland", "berkeley",
+      "emeryville", "brisbane", "redwood city", "san carlos", "menlo park",
+      "palo alto", "mountain view", "san mateo", "foster city", "alameda",
+      "fremont", "san jose", "santa clara", "sunnyvale", "burlingame",
+      "hayward", "bay area", "s. san francisco",
+    ];
+    const NEAR_1H_FLIGHT = [
+      "san diego", "la jolla", "carlsbad", "los angeles", "irvine", "pasadena",
+      "thousand oaks", "santa monica", "seattle", "bothell", "bellevue",
+      "portland", "vancouver", "salt lake", "denver", "boulder", "phoenix",
+      "tempe", "las vegas", "boise", "reno", "sacramento",
+    ];
+
+    // ------------------------------------------------------------------
+    // LinkedIn Jobs search URL helper
+    // ------------------------------------------------------------------
+    const lj = (query) =>
+      `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(query)}&f_TPR=r604800`;
+    // f_TPR=r604800 → "past week" filter (604800 seconds). Cuts stale listings.
+
+    // ------------------------------------------------------------------
+    // Big pharma LinkedIn Jobs links
+    // ------------------------------------------------------------------
+    const BIG_PHARMA = [
+      { name: "Genentech",            note: "South SF",              url: lj("Genentech director oncology") },
+      { name: "Roche",                note: "Basel / global",        url: lj("Roche director oncology") },
+      { name: "Gilead Sciences",      note: "Foster City",           url: lj("Gilead director oncology") },
+      { name: "Bristol Myers Squibb", note: "Redwood City / SSF",    url: lj("Bristol Myers Squibb director oncology") },
+      { name: "AbbVie",               note: "S. SF (ex-Allergan)",   url: lj("AbbVie director oncology") },
+      { name: "Pfizer",               note: "La Jolla / SSF",        url: lj("Pfizer director oncology") },
+      { name: "Merck (MSD)",          note: "S. SF / Boston",        url: lj("Merck director oncology") },
+      { name: "Novartis",             note: "Emeryville",            url: lj("Novartis director oncology") },
+      { name: "AstraZeneca",          note: "S. SF / Gaithersburg",  url: lj("AstraZeneca director oncology") },
+      { name: "Johnson & Johnson",    note: "S. SF / San Diego",     url: lj("Johnson Johnson director oncology") },
+      { name: "Eli Lilly",            note: "San Diego",             url: lj("Eli Lilly director oncology") },
+      { name: "GSK",                  note: "S. SF / Philly",        url: lj("GSK director oncology") },
+      { name: "Takeda",               note: "San Diego / Cambridge", url: lj("Takeda director oncology") },
+      { name: "Sanofi",               note: "Cambridge",             url: lj("Sanofi director oncology") },
+      { name: "Amgen",                note: "Thousand Oaks / S. SF", url: lj("Amgen director oncology") },
+      { name: "Regeneron",            note: "Tarrytown NY",          url: lj("Regeneron director oncology") },
+      { name: "Vertex",               note: "San Diego / Boston",    url: lj("Vertex Pharmaceuticals director oncology") },
+      { name: "Moderna",              note: "S. SF / Cambridge",     url: lj("Moderna director oncology") },
+      { name: "Bayer",                note: "Berkeley",              url: lj("Bayer director oncology") },
+      { name: "Boehringer Ingelheim", note: "CT / Germany",          url: lj("Boehringer Ingelheim director oncology") },
+      { name: "Daiichi Sankyo",       note: "Basking Ridge NJ",      url: lj("Daiichi Sankyo director oncology") },
+      { name: "Incyte",               note: "Wilmington DE",         url: lj("Incyte director oncology") },
+      { name: "BeOne Medicines (BeiGene)", note: "San Mateo",        url: lj("BeiGene director oncology") },
+    ];
+
+    // ------------------------------------------------------------------
+    // Biotech LinkedIn Jobs links
+    // ------------------------------------------------------------------
+    const BIOTECH_COMPANIES = [
+      // Bay Area
+      { name: "Revolution Medicines",    note: "Redwood City · RAS oncology",       url: lj("Revolution Medicines director") },
+      { name: "Arcus Biosciences",       note: "Hayward · IO",                      url: lj("Arcus Biosciences director") },
+      { name: "Exelixis",                note: "Alameda · oncology",                url: lj("Exelixis director") },
+      { name: "Nurix Therapeutics",      note: "SF · TPD oncology",                 url: lj("Nurix Therapeutics director") },
+      { name: "Allogene Therapeutics",   note: "S. SF · CAR-T",                     url: lj("Allogene Therapeutics director") },
+      { name: "Sutro Biopharma",         note: "S. SF · ADCs",                      url: lj("Sutro Biopharma director") },
+      { name: "Nkarta",                  note: "S. SF · NK cell",                   url: lj("Nkarta director") },
+      { name: "Lyell Immunopharma",      note: "S. SF · TIL",                       url: lj("Lyell Immunopharma director") },
+      { name: "Sana Biotechnology",      note: "S. SF · cell therapy",              url: lj("Sana Biotechnology director") },
+      { name: "Arsenal Bio",             note: "S. SF · CAR-T",                     url: lj("Arsenal Biosciences director") },
+      { name: "Cargo Therapeutics",      note: "San Carlos · CAR-T",                url: lj("Cargo Therapeutics director") },
+      { name: "Maze Therapeutics",       note: "S. SF · genetic medicines",         url: lj("Maze Therapeutics director") },
+      { name: "Tempest Therapeutics",    note: "Brisbane · IO",                     url: lj("Tempest Therapeutics director") },
+      { name: "Kronos Bio",              note: "S. SF · TF oncology",               url: lj("Kronos Bio director") },
+      { name: "Nuvation Bio",            note: "SF · oncology",                     url: lj("Nuvation Bio director") },
+      { name: "Day One Bio",             note: "Brisbane · pediatric onc",          url: lj("Day One Biopharmaceuticals director") },
+      { name: "Septerna",                note: "S. SF · GPCRs",                     url: lj("Septerna director") },
+      { name: "Scribe Therapeutics",     note: "Alameda · CRISPR",                  url: lj("Scribe Therapeutics director") },
+      { name: "IDEAYA Biosciences",      note: "S. SF · synthetic lethality",       url: lj("IDEAYA Biosciences director") },
+      { name: "Kyverna Therapeutics",    note: "Emeryville · CAR-T",                url: lj("Kyverna Therapeutics director") },
+      { name: "Gritstone bio",           note: "Emeryville · cancer vaccines",      url: lj("Gritstone bio director") },
+      { name: "Guardant Health",         note: "Palo Alto · liquid biopsy",         url: lj("Guardant Health director") },
+      { name: "Natera",                  note: "San Carlos · liquid biopsy",        url: lj("Natera director oncology") },
+      { name: "Recursion",               note: "SF / SLC · AI drug discovery",      url: lj("Recursion Pharmaceuticals director") },
+      { name: "Atara Biotherapeutics",   note: "Thousand Oaks · cell therapy",      url: lj("Atara Biotherapeutics director") },
+      // 1-hr-flight
+      { name: "Erasca",                  note: "San Diego · RAS/MAPK",              url: lj("Erasca director") },
+      { name: "Tyra Biosciences",        note: "Carlsbad · FGFR",                   url: lj("Tyra Biosciences director") },
+      { name: "BioAtla",                 note: "San Diego · CAB antibodies",        url: lj("BioAtla director") },
+      { name: "Iovance Biotherapeutics", note: "San Diego · TIL",                   url: lj("Iovance Biotherapeutics director") },
+      { name: "Kura Oncology",           note: "San Diego · menin inhibitors",      url: lj("Kura Oncology director") },
+      { name: "Cullinan Therapeutics",   note: "SF / Cambridge · oncology",         url: lj("Cullinan Therapeutics director") },
+    ];
+
+    // ------------------------------------------------------------------
+    // Title filters
+    // ------------------------------------------------------------------
+    const TITLE_RE = /\b(director|sr\.?\s*director|senior director|exec(utive)?\s*director|head of|vp\b|vice president|entrepreneur[- ]?in[- ]?residence|\beir\b|chief scientific)\b/i;
+    const EXCLUDE_TITLE = /\b(associate director|assoc\.?\s*director|clinical director|medical director|regulatory|cmc|process development|manufacturing|quality assurance|commercial director|finance|legal|HR|human resources|marketing|accounting|IT director)\b/i;
+
+    // ------------------------------------------------------------------
+    // Fetchers — Greenhouse and Lever both have CORS-open public APIs
+    // ------------------------------------------------------------------
+    async function fetchGreenhouse(board) {
+      try {
+        const r = await fetch(`https://boards-api.greenhouse.io/v1/boards/${board.slug}/jobs?content=true`);
+        if (!r.ok) return { ok: false, jobs: [] };
+        const d = await r.json();
+        const jobs = (d.jobs || []).map(j => ({
+          id: `gh-${board.slug}-${j.id}`,
+          title: j.title || "",
+          company: board.name,
+          companySlug: board.slug,
+          location: j.location?.name || "",
+          url: j.absolute_url,
+          content: (j.content || "")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/&[a-z#0-9]+;/gi, " ")
+            .replace(/\s+/g, " ")
+            .slice(0, 4000),
+          updated: j.updated_at,
+          departments: (j.departments || []).map(x => x.name).join(", "),
+        }));
+        return { ok: true, jobs };
+      } catch (e) {
+        return { ok: false, jobs: [] };
+      }
+    }
+
+    async function fetchLever(board) {
+      try {
+        const r = await fetch(`https://api.lever.co/v0/postings/${board.slug}?mode=json`);
+        if (!r.ok) return { ok: false, jobs: [] };
+        const d = await r.json();
+        if (!Array.isArray(d)) return { ok: false, jobs: [] };
+        const jobs = d.map(j => ({
+          id: `lv-${board.slug}-${j.id}`,
+          title: j.text || "",
+          company: board.name,
+          companySlug: board.slug,
+          location: j.categories?.location || "",
+          url: j.hostedUrl,
+          content: ((j.descriptionPlain || "") + " " +
+            (j.lists || []).map(l => (l.content || "").replace(/<[^>]+>/g, " ")).join(" "))
+            .replace(/&[a-z#0-9]+;/gi, " ")
+            .replace(/\s+/g, " ")
+            .slice(0, 4000),
+          updated: j.createdAt ? new Date(j.createdAt).toISOString() : null,
+          departments: j.categories?.team || j.categories?.department || "",
+        }));
+        return { ok: true, jobs };
+      } catch (e) {
+        return { ok: false, jobs: [] };
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Scoring
+    // ------------------------------------------------------------------
+    function scoreJob(job) {
+      const t = job.title;
+      const c = (job.content + " " + job.departments).toLowerCase();
+      const loc = job.location.toLowerCase();
+      const reasons = [];
+      let s = 0;
+
+      if (EXCLUDE_TITLE.test(t)) return { score: -999, reasons: ["excluded title type"] };
+      if (!TITLE_RE.test(t)) return { score: -999, reasons: ["not senior enough"] };
+
+      if (/vp\b|vice president/i.test(t)) { s += 3; reasons.push("VP"); }
+      else if (/head of/i.test(t)) { s += 3; reasons.push("Head of"); }
+      else if (/exec(utive)?\s*director/i.test(t)) { s += 3; reasons.push("Exec Dir"); }
+      else if (/eir|entrepreneur[- ]?in[- ]?residence/i.test(t)) { s += 4; reasons.push("EIR"); }
+      else if (/senior director|sr\.?\s*director/i.test(t)) { s += 2; reasons.push("Sr Director"); }
+      else if (/director/i.test(t)) { s += 2; reasons.push("Director"); }
+
+      if (/metasta/i.test(c + " " + t)) { s += 5; reasons.push("metastasis ★"); }
+      if (/oncology|tumor|cancer|immuno-?oncology|\bio\b/i.test(c + " " + t)) { s += 3; reasons.push("oncology"); }
+      if (/translational/i.test(c + " " + t)) { s += 2; reasons.push("translational"); }
+      if (/discovery biology|discovery research|target discovery|target identification|early discovery/i.test(c)) { s += 2; reasons.push("discovery biology"); }
+      else if (/\bdiscovery\b/i.test(t)) { s += 2; reasons.push("discovery (title)"); }
+      if (/tumor microenvironment|\btme\b|immune evasion|immune tolerance|immune escape/i.test(c)) { s += 2; reasons.push("TME/immune"); }
+      if (/strateg/i.test(c + " " + t)) { s += 1; reasons.push("strategic"); }
+      if (/epigenetic|base editor|crispr/i.test(c)) { s += 1; reasons.push("epigenetic/CRISPR"); }
+
+      const inBay = BAY_AREA.some(x => loc.includes(x));
+      const inNear = !inBay && NEAR_1H_FLIGHT.some(x => loc.includes(x));
+      const remote = /remote|united states|\bus\b|anywhere/i.test(loc);
+      if (inBay) { s += 2; reasons.push("Bay Area"); }
+      else if (inNear) { s += 1; reasons.push("1hr flight"); }
+      else if (remote) { s += 1; reasons.push("remote-OK"); }
+      else if (loc) { s -= 2; reasons.push(`far: ${job.location}`); }
+
+      return { score: s, reasons };
+    }
+
+    // ------------------------------------------------------------------
+    // Storage — plain localStorage, synchronous
+    // ------------------------------------------------------------------
+    const BOARDS_KEY = "oncfinder:boards";
+    const RESULTS_KEY = "oncfinder:lastresults";
+
+    function loadBoards() {
+      try {
+        const v = localStorage.getItem(BOARDS_KEY);
+        if (v) return JSON.parse(v);
+      } catch (e) {}
+      return DEFAULT_BOARDS;
+    }
+    function saveBoards(boards) {
+      try { localStorage.setItem(BOARDS_KEY, JSON.stringify(boards)); } catch (e) {}
+    }
+    function loadResults() {
+      try {
+        const v = localStorage.getItem(RESULTS_KEY);
+        if (v) return JSON.parse(v);
+      } catch (e) {}
+      return null;
+    }
+    function saveResults(payload) {
+      try { localStorage.setItem(RESULTS_KEY, JSON.stringify(payload)); } catch (e) {}
+    }
+
+    // ------------------------------------------------------------------
+    // Component
+    // ------------------------------------------------------------------
+    function OncDirectorFinder() {
+      const [boards, setBoards] = useState(() => loadBoards());
+      const [newSlug, setNewSlug] = useState("");
+      const [newName, setNewName] = useState("");
+      const [newSource, setNewSource] = useState("greenhouse");
+      const [scanning, setScanning] = useState(false);
+      const [progress, setProgress] = useState({ done: 0, total: 0 });
+
+      const cachedInit = loadResults() || {};
+      const [results, setResults] = useState(cachedInit.results || []);
+      const [skipped, setSkipped] = useState(cachedInit.skipped || []);
+      const [lastScan, setLastScan] = useState(cachedInit.lastScan || null);
+
+      const [minScore, setMinScore] = useState(4);
+      const [mustOnc, setMustOnc] = useState(false);
+      const [expanded, setExpanded] = useState({});
+      const [showBoards, setShowBoards] = useState(false);
+      const [showPharma, setShowPharma] = useState(false);
+      const [showBiotechLinks, setShowBiotechLinks] = useState(false);
+
+      async function runScan() {
+        setScanning(true);
+        setProgress({ done: 0, total: boards.length });
+        const all = [];
+        const skippedList = [];
+        const chunkSize = 6;
+        for (let i = 0; i < boards.length; i += chunkSize) {
+          const chunk = boards.slice(i, i + chunkSize);
+          const res = await Promise.all(chunk.map(b =>
+            b.source === "lever" ? fetchLever(b) : fetchGreenhouse(b)
+          ));
+          res.forEach((r, idx) => {
+            if (!r.ok) skippedList.push(chunk[idx].slug);
+            else all.push(...r.jobs);
+          });
+          setProgress({ done: Math.min(i + chunkSize, boards.length), total: boards.length });
+        }
+        const scored = all
+          .map(j => ({ ...j, ...scoreJob(j) }))
+          .filter(j => j.score > -100)
+          .sort((a, b) => b.score - a.score);
+        setResults(scored);
+        setSkipped(skippedList);
+        const now = new Date().toISOString();
+        setLastScan(now);
+        saveResults({ results: scored, skipped: skippedList, lastScan: now });
+        setScanning(false);
+      }
+
+      const filtered = useMemo(() => {
+        return results.filter(j => {
+          if (j.score < minScore) return false;
+          if (mustOnc && !j.reasons.some(r => /oncology|metastasis|TME/.test(r))) return false;
+          return true;
+        });
+      }, [results, minScore, mustOnc]);
+
+      function addBoard() {
+        if (!newSlug.trim()) return;
+        const b = [...boards, { source: newSource, slug: newSlug.trim(), name: newName.trim() || newSlug.trim() }];
+        setBoards(b);
+        saveBoards(b);
+        setNewSlug("");
+        setNewName("");
+      }
+      function removeBoard(slug) {
+        const b = boards.filter(x => x.slug !== slug);
+        setBoards(b);
+        saveBoards(b);
+      }
+      function resetBoards() {
+        setBoards(DEFAULT_BOARDS);
+        saveBoards(DEFAULT_BOARDS);
+      }
+
+      const fmtDate = iso => iso ? new Date(iso).toLocaleString() : "—";
+
+      return (
+        <div className="min-h-screen bg-slate-50 text-slate-900 p-4 sm:p-8">
+          <div className="max-w-5xl mx-auto">
+            <header className="mb-6">
+              <h1 className="text-2xl sm:text-3xl font-bold text-indigo-700">Director / EIR Finder — Oncology</h1>
+              <p className="text-sm text-slate-600 mt-1">
+                Scans {boards.length} verified biotech boards in real time (Greenhouse + Lever). For everything else, use the biotech or big-pharma LinkedIn-link panels. All results filter to Director+ / EIR roles in discovery biology, translational, or strategy — weighted by oncology, metastasis, TME, and SF-Bay or 1-hr-flight locations.
+              </p>
+            </header>
+
+            {/* Controls */}
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-4">
+              <div className="flex flex-wrap gap-3 items-center">
+                <button
+                  onClick={runScan}
+                  disabled={scanning}
+                  className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 text-white font-medium px-5 py-2 rounded-md"
+                >
+                  {scanning ? `Scanning ${progress.done}/${progress.total}…` : "Run scan"}
+                </button>
+                <div className="flex items-center gap-2 text-sm">
+                  <label className="text-slate-700">Min score</label>
+                  <input
+                    type="number"
+                    value={minScore}
+                    onChange={e => setMinScore(Number(e.target.value))}
+                    className="w-16 border border-slate-300 rounded px-2 py-1"
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={mustOnc} onChange={e => setMustOnc(e.target.checked)} />
+                  Must be oncology/metastasis
+                </label>
+                <div className="ml-auto flex gap-4 flex-wrap">
+                  <button
+                    onClick={() => setShowBiotechLinks(!showBiotechLinks)}
+                    className="text-sm text-indigo-600 hover:text-indigo-800 underline"
+                  >
+                    {showBiotechLinks ? "Hide" : "Show"} biotech links ({BIOTECH_COMPANIES.length})
+                  </button>
+                  <button
+                    onClick={() => setShowPharma(!showPharma)}
+                    className="text-sm text-indigo-600 hover:text-indigo-800 underline"
+                  >
+                    {showPharma ? "Hide" : "Show"} big pharma ({BIG_PHARMA.length})
+                  </button>
+                  <button
+                    onClick={() => setShowBoards(!showBoards)}
+                    className="text-sm text-indigo-600 hover:text-indigo-800 underline"
+                  >
+                    {showBoards ? "Hide" : "Manage"} scan list ({boards.length})
+                  </button>
+                </div>
+              </div>
+              <div className="text-xs text-slate-500 mt-3">
+                Last scan: {fmtDate(lastScan)} · {results.length} qualifying roles found · {skipped.length} boards skipped (404)
+              </div>
+            </div>
+
+            {/* Board manager */}
+            {showBoards && (
+              <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-4">
+                <h2 className="font-semibold text-slate-800 mb-3">Company boards</h2>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  <select
+                    value={newSource}
+                    onChange={e => setNewSource(e.target.value)}
+                    className="border border-slate-300 rounded px-2 py-1.5 text-sm bg-white"
+                  >
+                    <option value="greenhouse">Greenhouse</option>
+                    <option value="lever">Lever</option>
+                  </select>
+                  <input
+                    value={newSlug}
+                    onChange={e => setNewSlug(e.target.value)}
+                    placeholder={newSource === "lever" ? "lever slug (e.g. ideayabio)" : "greenhouse slug (e.g. revolutionmedicines)"}
+                    className="flex-1 min-w-48 border border-slate-300 rounded px-3 py-1.5 text-sm"
+                  />
+                  <input
+                    value={newName}
+                    onChange={e => setNewName(e.target.value)}
+                    placeholder="display name (optional)"
+                    className="flex-1 min-w-32 border border-slate-300 rounded px-3 py-1.5 text-sm"
+                  />
+                  <button onClick={addBoard} className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 py-1.5 rounded">Add</button>
+                  <button onClick={resetBoards} className="bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm px-4 py-1.5 rounded">Reset to defaults</button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {boards.map(b => {
+                    const wasSkipped = skipped.includes(b.slug);
+                    return (
+                      <span
+                        key={`${b.source}-${b.slug}`}
+                        className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded border ${wasSkipped ? "bg-red-50 border-red-200 text-red-700" : "bg-slate-100 border-slate-200 text-slate-700"}`}
+                        title={wasSkipped ? "404 on last scan — slug may be wrong" : `${b.source}: ${b.slug}`}
+                      >
+                        {b.name}
+                        <span className="text-slate-400 ml-1">· {b.source}</span>
+                        <button onClick={() => removeBoard(b.slug)} className="text-slate-400 hover:text-red-600 ml-1">×</button>
+                      </span>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-slate-500 mt-3">
+                  Finding slugs: on the company's careers page, look at the URL when you click "View open positions". Greenhouse slugs appear in <code className="bg-slate-100 px-1 rounded">boards.greenhouse.io/SLUG</code> or <code className="bg-slate-100 px-1 rounded">job-boards.greenhouse.io/SLUG</code>. Lever slugs appear in <code className="bg-slate-100 px-1 rounded">jobs.lever.co/SLUG</code>. If neither format shows up, the company uses a different ATS — use the LinkedIn panels instead.
+                </p>
+              </div>
+            )}
+
+            {/* Biotech LinkedIn links */}
+            {showBiotechLinks && (
+              <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-4">
+                <h2 className="font-semibold text-slate-800 mb-1">Biotech — LinkedIn Jobs searches</h2>
+                <p className="text-xs text-slate-500 mb-3">
+                  Oncology-focused biotechs across the Bay Area and 1-hr-flight radius. Each button opens a LinkedIn Jobs search for <span className="font-mono">"&#123;company&#125; director"</span>, pre-filtered to the past week so stale listings are cut out.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {BIOTECH_COMPANIES.map(p => (
+                    <a
+                      key={p.name}
+                      href={p.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex flex-col border border-slate-200 rounded-md px-3 py-2 hover:border-indigo-400 hover:bg-indigo-50"
+                    >
+                      <span className="font-medium text-sm text-indigo-700">{p.name}</span>
+                      <span className="text-xs text-slate-500">{p.note}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Big pharma LinkedIn links */}
+            {showPharma && (
+              <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-4">
+                <h2 className="font-semibold text-slate-800 mb-1">Big pharma — LinkedIn Jobs searches</h2>
+                <p className="text-xs text-slate-500 mb-3">
+                  Big pharmas run on Workday / iCIMS / Phenom, which block in-browser aggregation. Each button opens a LinkedIn Jobs search for <span className="font-mono">"&#123;company&#125; director oncology"</span>, pre-filtered to the past week.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {BIG_PHARMA.map(p => (
+                    <a
+                      key={p.name}
+                      href={p.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex flex-col border border-slate-200 rounded-md px-3 py-2 hover:border-indigo-400 hover:bg-indigo-50"
+                    >
+                      <span className="font-medium text-sm text-indigo-700">{p.name}</span>
+                      <span className="text-xs text-slate-500">{p.note}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Scan results */}
+            <div className="space-y-3">
+              {filtered.length === 0 && !scanning && (
+                <div className="bg-white rounded-lg border border-dashed border-slate-300 p-8 text-center text-slate-500">
+                  {results.length === 0 ? "Hit \"Run scan\" to fetch open roles from the verified boards." : `No roles meet min score ${minScore}. Lower the threshold or uncheck the onc-only filter.`}
+                </div>
+              )}
+              {filtered.map(job => (
+                <div key={job.id} className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 hover:border-indigo-300">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <a href={job.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-indigo-700 hover:text-indigo-900 hover:underline">
+                          {job.title}
+                        </a>
+                        <span className="text-xs bg-indigo-100 text-indigo-700 font-medium px-2 py-0.5 rounded">score {job.score}</span>
+                      </div>
+                      <div className="text-sm text-slate-600 mt-1">
+                        <span className="font-medium">{job.company}</span>
+                        {job.location && <span> · {job.location}</span>}
+                        {job.departments && <span className="text-slate-400"> · {job.departments}</span>}
+                      </div>
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {job.reasons.map((r, i) => (
+                          <span key={i} className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{r}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setExpanded({ ...expanded, [job.id]: !expanded[job.id] })}
+                      className="text-xs text-slate-500 hover:text-indigo-600 shrink-0"
+                    >
+                      {expanded[job.id] ? "hide" : "preview"}
+                    </button>
+                  </div>
+                  {expanded[job.id] && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 text-sm text-slate-600">
+                      {job.content.slice(0, 800)}…
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <footer className="mt-8 text-xs text-slate-400 text-center">
+              Standalone build · Greenhouse + Lever APIs for real-time scan · LinkedIn Jobs (past-week filter) for everything else · Saved state in browser localStorage
+            </footer>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<OncDirectorFinder />);
+  </script>
+</body>
+</html>
